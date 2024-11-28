@@ -4,7 +4,7 @@ const { exec, spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const { default: axios } = require("axios");
-
+const os = require("os");
 
 const app = express();
 const PORT = 3006;
@@ -12,6 +12,7 @@ const PORT = 3006;
 app.use(cors());
 app.use(express.json());
 
+// Get the OpenVPN binary path
 const getOpenVPNPath = () => {
     return new Promise((resolve, reject) => {
         exec("which openvpn", (error, stdout) => {
@@ -23,6 +24,7 @@ const getOpenVPNPath = () => {
     });
 };
 
+// Add sudoers entry for the current user (or any specified user)
 const addSudoersEntry = async (username, openvpnPath) => {
     const sudoersFile = "/etc/sudoers";
     const entry = `${username} ALL=(ALL) NOPASSWD: ${openvpnPath}\n`;
@@ -41,6 +43,7 @@ const addSudoersEntry = async (username, openvpnPath) => {
     }
 };
 
+// Start VPN using the provided config file
 const startVPN = async (configFile) => {
     const openvpnPath = await getOpenVPNPath();
     const configPath = path.resolve(__dirname, "configs", configFile);
@@ -70,22 +73,8 @@ const startVPN = async (configFile) => {
     });
 };
 
-
-app.get('/add-sudoers', async (req, res) => {
-    const username = require('os').userInfo().username;
-  
-    try {
-      const openvpnPath = await getOpenVPNPath();
-      await addSudoersEntry(username, openvpnPath);
-      res.status(200).send('Sudoers entry added successfully!');
-    } catch (err) {
-      res.status(500).send(err.message);
-    }
-  });
-  
-
-
-  const stopVPN = () => {
+// Stop the VPN
+const stopVPN = () => {
     return new Promise((resolve, reject) => {
         exec("sudo /usr/bin/killall openvpn", (error, stdout, stderr) => {
             if (error) {
@@ -98,66 +87,7 @@ app.get('/add-sudoers', async (req, res) => {
     });
 };
 
-// Endpoint to stop the VPN
-app.post('/stop', async (req, res) => {
-    try {
-          const message = await stopVPN();
-        res.status(200).json({ message });
-    } catch (error) {
-        console.error("Failed to stop VPN:", error.message);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.post("/start/:location", async (req, res) => {
-    const location = req.params.location;
-    const configMap = {
-        france: "franceclient.ovpn",
-        usa: "usanewclient.ovpn",
-        uk: "uknewclient.ovpn",
-        australia: "australiaclient.ovpn",
-        uae: "uaenewclient.ovpn",
-    };
-
-    const configFile = configMap[location];
-    if (!configFile) {
-        return res.status(400).json({ error: "Invalid location" });
-    }
-
-    try {
-        const message = await startVPN(configFile);
-        res.status(200).json({ message });
-        console.log("vpn started !!!!!")
-    } catch (error) {
-        console.log("error message====", error.message)
-        res.status(500).json({ error: error.message });
-    }
-});
-
-
-
-app.get('/vpn-status', checkVpnStatus);
-
-
-app.get('/ip-info', async (req, res) => {
-    try {
-        const response = await axios.get('https://ipinfo.io/json');
-        if (response.status === 200) {
-            const ipInfo = response.data;
-            res.json(ipInfo);
-        } else {
-            console.error(`Non-success status from IPInfo API: ${response.status}`);
-            res.status(500).send(`IPInfo API error: ${response.status}`);
-        }
-    } catch (error) {
-        console.error(`Failed to fetch IP info: ${error.message}`);
-        res.status(500).send(`Failed to fetch IP info: ${error.message}`);
-    }
-});
-
-
-
-
+// Check if the VPN is running
 function getVpnRealStatus() {
     return new Promise((resolve, reject) => {
         exec("ps aux | grep openvpn | grep -v grep", (error, stdout, stderr) => {
@@ -187,7 +117,7 @@ function getVpnRealStatus() {
     });
 }
 
-// Function to check VPN status and respond
+// Check VPN status and respond
 async function checkVpnStatus(req, res) {
     try {
         const vpnStatus = await getVpnRealStatus();
@@ -201,9 +131,77 @@ async function checkVpnStatus(req, res) {
     }
 }
 
+// Add sudoers entry API endpoint
+app.get('/add-sudoers', async (req, res) => {
+    const username = os.userInfo().username;
 
+    try {
+        const openvpnPath = await getOpenVPNPath();
+        await addSudoersEntry(username, openvpnPath);
+        res.status(200).send('Sudoers entry added successfully!');
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
 
+// Stop VPN API endpoint
+app.post('/stop', async (req, res) => {
+    try {
+        const message = await stopVPN();
+        res.status(200).json({ message });
+    } catch (error) {
+        console.error("Failed to stop VPN:", error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
 
+// Start VPN API endpoint with location
+app.post("/start/:location", async (req, res) => {
+    const location = req.params.location;
+    const configMap = {
+        france: "franceclient.ovpn",
+        usa: "usanewclient.ovpn",
+        uk: "uknewclient.ovpn",
+        australia: "australiaclient.ovpn",
+        uae: "uaenewclient.ovpn",
+    };
+
+    const configFile = configMap[location];
+    if (!configFile) {
+        return res.status(400).json({ error: "Invalid location" });
+    }
+
+    try {
+        const message = await startVPN(configFile);
+        res.status(200).json({ message });
+        console.log("vpn started !!!!!");
+    } catch (error) {
+        console.log("error message====", error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Check VPN status API endpoint
+app.get('/vpn-status', checkVpnStatus);
+
+// Fetch IP info API endpoint
+app.get('/ip-info', async (req, res) => {
+    try {
+        const response = await axios.get('https://ipinfo.io/json');
+        if (response.status === 200) {
+            const ipInfo = response.data;
+            res.json(ipInfo);
+        } else {
+            console.error(`Non-success status from IPInfo API: ${response.status}`);
+            res.status(500).send(`IPInfo API error: ${response.status}`);
+        }
+    } catch (error) {
+        console.error(`Failed to fetch IP info: ${error.message}`);
+        res.status(500).send(`Failed to fetch IP info: ${error.message}`);
+    }
+});
+
+// Start the express server
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
 });
