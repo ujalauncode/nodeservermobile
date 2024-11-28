@@ -127,7 +127,9 @@ app.post("/start/:location", async (req, res) => {
     try {
         const message = await startVPN(configFile);
         res.status(200).json({ message });
+        console.log("vpn started !!!!!")
     } catch (error) {
+        console.log("error message====", error.message)
         res.status(500).json({ error: error.message });
     }
 });
